@@ -7,6 +7,7 @@ using AutoFixture.Xunit3;
 using Jellyfin.Api.Controllers;
 using Jellyfin.Database.Implementations.Entities;
 using MediaBrowser.Common.Net;
+using MediaBrowser.Controller.Authentication;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Devices;
 using MediaBrowser.Controller.Library;
@@ -35,6 +36,7 @@ public class UserControllerTests
     private readonly Mock<ILogger<UserController>> _mockLogger;
     private readonly Mock<IQuickConnect> _mockQuickConnect;
     private readonly Mock<IPlaylistManager> _mockPlaylistManager;
+    private readonly Mock<IExchangeCodeManager> _mockExchangeCodeManager;
 
     public UserControllerTests()
     {
@@ -47,6 +49,7 @@ public class UserControllerTests
         _mockLogger = new Mock<ILogger<UserController>>();
         _mockQuickConnect = new Mock<IQuickConnect>();
         _mockPlaylistManager = new Mock<IPlaylistManager>();
+        _mockExchangeCodeManager = new Mock<IExchangeCodeManager>();
 
         _subject = new UserController(
             _mockUserManager.Object,
@@ -57,7 +60,8 @@ public class UserControllerTests
             _mockServerConfigurationManager.Object,
             _mockLogger.Object,
             _mockQuickConnect.Object,
-            _mockPlaylistManager.Object);
+            _mockPlaylistManager.Object,
+            _mockExchangeCodeManager.Object);
     }
 
     [Theory]
