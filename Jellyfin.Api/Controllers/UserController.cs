@@ -46,6 +46,7 @@ public class UserController : BaseJellyfinApiController
     private readonly ILogger _logger;
     private readonly IQuickConnect _quickConnectManager;
     private readonly IPlaylistManager _playlistManager;
+    private readonly IExchangeCodeManager _exchangeCodeManager;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="UserController"/> class.
@@ -59,6 +60,7 @@ public class UserController : BaseJellyfinApiController
     /// <param name="logger">Instance of the <see cref="ILogger"/> interface.</param>
     /// <param name="quickConnectManager">Instance of the <see cref="IQuickConnect"/> interface.</param>
     /// <param name="playlistManager">Instance of the <see cref="IPlaylistManager"/> interface.</param>
+    /// <param name="exchangeCodeManager">Instance of the <see cref="IExchangeCodeManager"/> interface.</param>
     public UserController(
         IUserManager userManager,
         ISessionManager sessionManager,
@@ -68,7 +70,8 @@ public class UserController : BaseJellyfinApiController
         IServerConfigurationManager config,
         ILogger<UserController> logger,
         IQuickConnect quickConnectManager,
-        IPlaylistManager playlistManager)
+        IPlaylistManager playlistManager,
+        IExchangeCodeManager exchangeCodeManager)
     {
         _userManager = userManager;
         _sessionManager = sessionManager;
@@ -79,6 +82,7 @@ public class UserController : BaseJellyfinApiController
         _logger = logger;
         _quickConnectManager = quickConnectManager;
         _playlistManager = playlistManager;
+        _exchangeCodeManager = exchangeCodeManager;
     }
 
     /// <summary>
@@ -250,6 +254,34 @@ public class UserController : BaseJellyfinApiController
         try
         {
             return _quickConnectManager.GetAuthorizedRequest(request.Secret);
+        }
+        catch (SecurityException e)
+        {
+            // rethrow adding IP address to message
+            throw new SecurityException($"[{HttpContext.GetNormalizedRemoteIP()}] {e.Message}", e);
+        }
+    }
+
+    /// <summary>
+    /// Authenticates a user with an exchange code.
+    /// </summary>
+    /// <param name="request">The <see cref="ExchangeCodeDto"/> request.</param>
+    /// <response code="200">User authenticated.</response>
+    /// <returns>A <see cref="Task"/> containing an <see cref="AuthenticationResult"/> with information about the new session.</returns>
+    [HttpPost("AuthenticateWithExchangeCode")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [Tags("Authentication")]
+    public async Task<ActionResult<AuthenticationResult>> AuthenticateWithExchangeCode([FromBody, Required] ExchangeCodeDto request)
+    {
+        var auth = await _authContext.GetAuthorizationInfo(Request).ConfigureAwait(false);
+
+        try
+        {
+            return await _exchangeCodeManager.RedeemCodeAsync(
+                request.Code,
+                request.CodeVerifier,
+                auth,
+                HttpContext.GetNormalizedRemoteIP().ToString()).ConfigureAwait(false);
         }
         catch (SecurityException e)
         {

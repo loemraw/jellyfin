@@ -7,7 +7,9 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Jellyfin.Api.Models.UserDtos;
 using Jellyfin.Extensions.Json;
+using MediaBrowser.Controller.Authentication;
 using MediaBrowser.Model.Dto;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 using Xunit.v3.Priority;
 
@@ -17,6 +19,8 @@ namespace Jellyfin.Server.Integration.Tests.Controllers
     public sealed class UserControllerTests : IClassFixture<JellyfinApplicationFactory>
     {
         private const string TestUsername = "testUser01";
+        private const string ExchangeCodeVerifier = "dBjftJeZ4CVP-mJ92K1qUFSpYpZT6SfTE1WoBN6FGxdN";
+        private const string ExchangeCodeChallenge = "0GpGcQNMruV5OeDMIV9KfGRPUgLOOu6_4IIDATCi454";
 
         private readonly JellyfinApplicationFactory _factory;
         private readonly JsonSerializerOptions _jsonOptions = JsonDefaults.Options;
@@ -30,6 +34,17 @@ namespace Jellyfin.Server.Integration.Tests.Controllers
 
         private Task<HttpResponseMessage> CreateUserByName(HttpClient httpClient, CreateUserByName request)
             => httpClient.PostAsJsonAsync("Users/New", request, _jsonOptions);
+
+        private async Task<HttpResponseMessage> AuthenticateWithExchangeCode(HttpClient httpClient, string codeVerifier)
+        {
+            var adminId = (await AuthHelper.GetUserDtoAsync(httpClient)).Id;
+            var code = _factory.Services.GetRequiredService<IExchangeCodeManager>().CreateCode(adminId, ExchangeCodeChallenge);
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, "Users/AuthenticateWithExchangeCode");
+            request.Headers.TryAddWithoutValidation(AuthHelper.AuthHeaderName, AuthHelper.DummyAuthHeader.Replace("69420", "exchange-code-device", StringComparison.Ordinal));
+            request.Content = JsonContent.Create(new ExchangeCodeDto { Code = code, CodeVerifier = codeVerifier }, options: _jsonOptions);
+            return await httpClient.SendAsync(request);
+        }
 
         private Task<HttpResponseMessage> UpdateUserPassword(HttpClient httpClient, Guid userId, UpdateUserPassword request)
             => httpClient.PostAsJsonAsync("Users/" + userId.ToString("N", CultureInfo.InvariantCulture) + "/Password", request, _jsonOptions);
@@ -129,6 +144,34 @@ namespace Jellyfin.Server.Integration.Tests.Controllers
 
             using var response = await client.DeleteAsync($"User/{Guid.NewGuid()}", TestContext.Current.CancellationToken);
             Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        }
+
+        [Fact]
+        [Priority(0)]
+        public async Task AuthenticateWithExchangeCode_Valid_Success()
+        {
+            var adminClient = _factory.CreateClient();
+            adminClient.DefaultRequestHeaders.AddAuthHeader(_accessToken!);
+
+            using var response = await AuthenticateWithExchangeCode(adminClient, ExchangeCodeVerifier);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var auth = await response.Content.ReadFromJsonAsync<AuthenticationResult>(_jsonOptions, TestContext.Current.CancellationToken);
+            Assert.NotNull(auth);
+
+            var client = _factory.CreateClient();
+            client.DefaultRequestHeaders.AddAuthHeader(auth.AccessToken);
+            _ = await AuthHelper.GetUserDtoAsync(client);
+        }
+
+        [Fact]
+        [Priority(0)]
+        public async Task AuthenticateWithExchangeCode_WrongVerifier_Unauthorized()
+        {
+            var client = _factory.CreateClient();
+            client.DefaultRequestHeaders.AddAuthHeader(_accessToken!);
+
+            using var response = await AuthenticateWithExchangeCode(client, new string('a', 43));
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         }
 
         [Fact]
